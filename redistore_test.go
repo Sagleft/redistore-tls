@@ -1,4 +1,4 @@
-package redistore
+package redistorex
 
 import (
 	"bytes"
