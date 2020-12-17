@@ -90,6 +90,7 @@ type RediStore struct {
 	maxLength     int
 	keyPrefix     string
 	serializer    SessionSerializer
+	LastCookie    SessionCookieResult
 }
 
 // SetMaxLength sets RediStore.maxLength if the `l` argument is greater or equal 0
@@ -249,14 +250,28 @@ func (s *RediStore) New(r *http.Request, name string) (*sessions.Session, error)
 	return session, err
 }
 
+//SessionCookieResult serves as a container with information about cookies for their processing outside
+type SessionCookieResult struct {
+	Name    string            `json:"name"`
+	Value   interface{}       `json:"value"`
+	Options *sessions.Options `json:"options,omitempty"`
+}
+
 // Save adds a single session to the response.
 func (s *RediStore) Save(r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
 	// Marked for deletion.
+	result := SessionCookieResult{
+		Name:    session.Name(),
+		Options: session.Options,
+	}
+	s.LastCookie = SessionCookieResult{}
 	if session.Options.MaxAge <= 0 {
 		if err := s.delete(session); err != nil {
 			return err
 		}
 		http.SetCookie(w, sessions.NewCookie(session.Name(), "", session.Options))
+		result.Value = ""
+		s.LastCookie = result
 	} else {
 		// Build an alphanumeric key for the redis store.
 		if session.ID == "" {
@@ -270,6 +285,8 @@ func (s *RediStore) Save(r *http.Request, w http.ResponseWriter, session *sessio
 			return err
 		}
 		http.SetCookie(w, sessions.NewCookie(session.Name(), encoded, session.Options))
+		result.Value = encoded
+		s.LastCookie = result
 	}
 	return nil
 }
