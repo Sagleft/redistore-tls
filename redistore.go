@@ -91,6 +91,7 @@ type RediStore struct {
 	keyPrefix     string
 	serializer    SessionSerializer
 	LastCookie    SessionCookieResult
+	UseTLS        bool
 }
 
 // SetMaxLength sets RediStore.maxLength if the `l` argument is greater or equal 0
@@ -138,8 +139,8 @@ func (s *RediStore) SetMaxAge(v int) {
 	}
 }
 
-func dial(network, address, password string) (redis.Conn, error) {
-	c, err := redis.Dial(network, address, redis.DialUseTLS(true))
+func dial(network, address, password string, useTLS bool) (redis.Conn, error) {
+	c, err := redis.Dial(network, address, redis.DialUseTLS(useTLS))
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +155,8 @@ func dial(network, address, password string) (redis.Conn, error) {
 
 // NewRediStore returns a new RediStore.
 // size: maximum number of idle connections.
-func NewRediStore(size int, network, address, password string, keyPairs ...[]byte) (*RediStore, error) {
-	return NewRediStoreWithPool(&redis.Pool{
+func NewRediStore(size int, network, address, password string, useTLS bool, keyPairs ...[]byte) (*RediStore, error) {
+	redisConn, err := NewRediStoreWithPool(&redis.Pool{
 		MaxIdle:     size,
 		IdleTimeout: 240 * time.Second,
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
@@ -163,13 +164,17 @@ func NewRediStore(size int, network, address, password string, keyPairs ...[]byt
 			return err
 		},
 		Dial: func() (redis.Conn, error) {
-			return dial(network, address, password)
+			return dial(network, address, password, useTLS)
 		},
 	}, keyPairs...)
+	if err != nil {
+		return redisConn, err
+	}
+	return redisConn.SetTLS(useTLS), err
 }
 
-func dialWithDB(network, address, password, DB string) (redis.Conn, error) {
-	c, err := dial(network, address, password)
+func dialWithDB(network, address, password, DB string, useTLS bool) (redis.Conn, error) {
+	c, err := dial(network, address, password, useTLS)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +187,8 @@ func dialWithDB(network, address, password, DB string) (redis.Conn, error) {
 
 // NewRediStoreWithDB - like NewRedisStore but accepts `DB` parameter to select
 // redis DB instead of using the default one ("0")
-func NewRediStoreWithDB(size int, network, address, password, DB string, keyPairs ...[]byte) (*RediStore, error) {
-	return NewRediStoreWithPool(&redis.Pool{
+func NewRediStoreWithDB(size int, network, address, password, DB string, useTLS bool, keyPairs ...[]byte) (*RediStore, error) {
+	redisConn, err := NewRediStoreWithPool(&redis.Pool{
 		MaxIdle:     size,
 		IdleTimeout: 240 * time.Second,
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
@@ -191,9 +196,13 @@ func NewRediStoreWithDB(size int, network, address, password, DB string, keyPair
 			return err
 		},
 		Dial: func() (redis.Conn, error) {
-			return dialWithDB(network, address, password, DB)
+			return dialWithDB(network, address, password, DB, useTLS)
 		},
 	}, keyPairs...)
+	if err != nil {
+		return redisConn, err
+	}
+	return redisConn.SetTLS(useTLS), err
 }
 
 // NewRediStoreWithPool instantiates a RediStore with a *redis.Pool passed in.
@@ -248,6 +257,12 @@ func (s *RediStore) New(r *http.Request, name string) (*sessions.Session, error)
 		}
 	}
 	return session, err
+}
+
+//SetTLS - enable or disable TLS on dial
+func (s *RediStore) SetTLS(useTLS bool) *RediStore {
+	s.UseTLS = useTLS
+	return s
 }
 
 //SessionCookieResult serves as a container with information about cookies for their processing outside
